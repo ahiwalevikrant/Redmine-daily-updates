@@ -1,0 +1,29 @@
+name: Daily Redmine Report
+
+on:
+  schedule:
+    # 8:30 AM IST = 3:00 AM UTC (IST is UTC+5:30)
+    - cron: '0 3 * * *'
+  workflow_dispatch:  # allows manual trigger from the Actions tab, for testing
+
+jobs:
+  run-report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run Redmine report
+        env:
+          REDMINE_URL: ${{ secrets.REDMINE_URL }}
+          REDMINE_API_KEY: ${{ secrets.REDMINE_API_KEY }}
+          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+        run: python redmine_daily_report.py
