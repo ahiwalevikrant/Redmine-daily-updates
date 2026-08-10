@@ -1,11 +1,8 @@
 name: Daily Redmine Report
 
 on:
-  schedule:
-    # 8:30 AM IST = 3:00 AM UTC (IST is UTC+5:30)
-    # Runs Mon-Fri only (1-5 = Monday-Friday, 0/7 = Sunday)
-    # Offset to :03 instead of :00 to avoid top-of-hour queue congestion
-    - cron: '3 3 * * 1-5'
+  repository_dispatch:
+    types: [run-daily-report]  # triggered externally by cron-job.org at 8:30 AM IST, Mon-Fri
   workflow_dispatch:  # allows manual trigger from the Actions tab, for testing
 
 jobs:
