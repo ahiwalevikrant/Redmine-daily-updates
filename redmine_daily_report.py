@@ -3,17 +3,27 @@ import sys
 import json
 import requests
 
-# === CONFIGURATION (from environment variables) ===
-REDMINE_URL = os.environ.get("REDMINE_URL", "https://redmine.speridian.com/redmine/projects/engineering")
-API_KEY = os.environ.get("REDMINE_API_KEY")
-TEAMS_WEBHOOK_URL = os.environ.get("TEAMS_WEBHOOK_URL")
+REDMINE_URL = os.getenv("REDMINE_URL", "").rstrip("/")
+REDMINE_API_KEY = os.getenv("REDMINE_API_KEY")
+TEAMS_WEBHOOK_URL = os.getenv("TEAMS_WEBHOOK_URL")
 
-if not API_KEY or not TEAMS_WEBHOOK_URL:
-    print("❌ Missing required environment variables: REDMINE_API_KEY and/or TEAMS_WEBHOOK_URL")
+if not REDMINE_URL:
+    print("ERROR: REDMINE_URL is missing")
     sys.exit(1)
 
-# === STEP 1: Fetch tickets assigned to you ===
-headers = {"X-Redmine-API-Key": API_KEY}
+if not REDMINE_API_KEY:
+    print("ERROR: REDMINE_API_KEY is missing")
+    sys.exit(1)
+
+if not TEAMS_WEBHOOK_URL:
+    print("ERROR: TEAMS_WEBHOOK_URL is missing")
+    sys.exit(1)
+
+headers = {
+    "X-Redmine-API-Key": REDMINE_API_KEY,
+    "Content-Type": "application/json"
+}
+
 params = {
     "assigned_to_id": "me",
     "status_id": "open",
@@ -22,118 +32,117 @@ params = {
 }
 
 try:
-    response = requests.get(f"{REDMINE_URL}/issues.json", headers=headers, params=params, timeout=30)
-    response.raise_for_status()
-    issues = response.json().get("issues", [])
-    print(f"✅ Found {len(issues)} tickets assigned to you")
+    api_url = f"{REDMINE_URL}/issues.json"
 
-    # === STEP 2: Build Adaptive Card ===
+    print(f"Calling Redmine API: {api_url}")
+
+    response = requests.get(
+        api_url,
+        headers=headers,
+        params=params,
+        timeout=30
+    )
+
+    print(f"Redmine Status Code: {response.status_code}")
+
+    response.raise_for_status()
+
+    data = response.json()
+    issues = data.get("issues", [])
+
+    print(f"Found {len(issues)} open tickets")
+
     if not issues:
-        # No tickets - simple card
-        adaptive_card = {
+        card_content = {
             "type": "AdaptiveCard",
             "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
             "version": "1.4",
             "body": [
                 {
                     "type": "TextBlock",
-                    "text": "✅ No Open Tickets!",
                     "size": "Large",
                     "weight": "Bolder",
-                    "color": "Good"
+                    "color": "Good",
+                    "text": "✅ No Open Tickets"
                 },
                 {
                     "type": "TextBlock",
-                    "text": "No tickets are currently assigned to you. Enjoy your day! 🎉",
-                    "isSubtle": True
+                    "text": "No open tickets assigned."
                 }
             ]
         }
     else:
-        # Build ticket list for Adaptive Card
-        ticket_items = []
-        for issue in issues[:10]:  # Limit to 10 tickets
-            ticket_id = issue.get("id", "N/A")
-            subject = issue.get("subject", "No subject")
-            priority = issue.get("priority", {}).get("name", "N/A")
-            status = issue.get("status", {}).get("name", "N/A")
+        items = []
 
-            # Color based on priority
-            color = "Attention" if priority in ["High", "Urgent"] else "Default"
+        for issue in issues[:10]:
+            ticket_id = issue.get("id", "")
+            subject = issue.get("subject", "")
+            status = issue.get("status", {}).get("name", "")
+            priority = issue.get("priority", {}).get("name", "")
 
-            ticket_items.append({
+            items.append({
                 "type": "TextBlock",
-                "text": f"**#{ticket_id}** - {subject}",
-                "wrap": True
+                "wrap": True,
+                "text": f"#{ticket_id} - {subject}"
             })
-            ticket_items.append({
+
+            items.append({
                 "type": "TextBlock",
-                "text": f"Priority: {priority} | Status: {status}",
-                "isSubtle": True,
                 "spacing": "Small",
-                "separator": True
+                "isSubtle": True,
+                "text": f"Status: {status} | Priority: {priority}"
             })
 
-        adaptive_card = {
+        card_content = {
             "type": "AdaptiveCard",
             "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
             "version": "1.4",
             "body": [
                 {
                     "type": "TextBlock",
-                    "text": "📋 Your Open Redmine Tickets",
                     "size": "Large",
-                    "weight": "Bolder"
-                },
-                {
-                    "type": "TextBlock",
-                    "text": f"You have {len(issues)} open ticket(s) assigned to you",
-                    "isSubtle": True,
-                    "spacing": "Small"
+                    "weight": "Bolder",
+                    "text": f"📋 Open Redmine Tickets ({len(issues)})"
                 },
                 {
                     "type": "Container",
-                    "items": ticket_items,
-                    "spacing": "Medium"
-                }
-            ],
-            "actions": [
-                {
-                    "type": "Action.OpenUrl",
-                    "title": "View All Tickets in Redmine",
-                    "url": f"{REDMINE_URL}/issues?assigned_to_id=me"
+                    "items": items
                 }
             ]
         }
 
-    # === STEP 3: Send to Teams ===
     payload = {
         "type": "message",
         "attachments": [
             {
                 "contentType": "application/vnd.microsoft.card.adaptive",
-                "content": adaptive_card
+                "content": card_content
             }
         ]
     }
 
-    print("📤 Sending Adaptive Card to Teams...")
-    response_teams = requests.post(
+    print("Sending message to Teams...")
+
+    teams_response = requests.post(
         TEAMS_WEBHOOK_URL,
         headers={"Content-Type": "application/json"},
         data=json.dumps(payload),
         timeout=30
     )
 
-    print(f"📊 Teams Response Status: {response_teams.status_code}")
+    print(f"Teams Status Code: {teams_response.status_code}")
 
-    if response_teams.status_code == 202:
-        print("✅ Message accepted! Check your Teams channel.")
-    else:
-        print(f"❌ Error: {response_teams.status_code}")
-        print(f"Response: {response_teams.text}")
+    if teams_response.status_code not in [200, 202]:
+        print("Teams Response:")
+        print(teams_response.text)
         sys.exit(1)
 
-except requests.exceptions.RequestException as e:
-    print(f"❌ Error: {e}")
+    print("Report sent successfully")
+
+except requests.exceptions.RequestException as ex:
+    print(f"Request Error: {str(ex)}")
+    sys.exit(1)
+
+except Exception as ex:
+    print(f"Unexpected Error: {str(ex)}")
     sys.exit(1)
