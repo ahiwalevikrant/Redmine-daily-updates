@@ -11,6 +11,20 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Debug times
+        # Prints the event payload and both UTC and IST timestamps so we can
+        # determine whether the scheduler created the run at the expected time
+        # or the job was queued and started later.
+        run: |
+          echo "GITHUB_EVENT_NAME=$GITHUB_EVENT_NAME"
+          echo "UTC job start: $(date -u +"%Y-%m-%d %H:%M:%S %Z")"
+          echo "IST job start: $(TZ='Asia/Kolkata' date +"%Y-%m-%d %H:%M:%S %Z")"
+          echo "GITHUB_RUN_ID=$GITHUB_RUN_ID"
+          echo "GITHUB_RUN_NUMBER=$GITHUB_RUN_NUMBER"
+          echo "Event payload (first 200 lines):"
+          head -n 200 "$GITHUB_EVENT_PATH" || true
+          echo "----- end payload -----"
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
